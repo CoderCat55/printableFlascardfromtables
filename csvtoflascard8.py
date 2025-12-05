@@ -1,12 +1,34 @@
 # First, install required packages
-!pip install -q pandas reportlab openpyxl
+
 import pandas as pd
 from reportlab.lib.pagesizes import A6
 from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import simpleSplit
 import os
-from google.colab import files
+import io
+from fastapi import UploadFile
+from fastapi import FastAPI, UploadFile, File, Form, Request
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.templating import Jinja2Templates
+from fastapi.staticfiles import StaticFiles
+
+app = FastAPI()
+templates = Jinja2Templates(directory="templates")
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+@app.get("/", response_class=HTMLResponse)
+async def home(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
+
+@app.post("/generate")
+async def generate_pdf(
+    file: UploadFile = File(...),
+    fontsize: float = Form(10),
+    request: Request
+):
+    
+
 
 class ColabPDFMaker:
     def __init__(self):
@@ -15,7 +37,7 @@ class ColabPDFMaker:
     def upload_file(self):
         """Upload CSV or Excel file in Google Colab"""
         print("Please upload your CSV or Excel file:")
-        uploaded = files.upload()
+        uploaded = upload_file
 
         if not uploaded:
             print("No file uploaded. Exiting.")
@@ -288,7 +310,7 @@ class ColabPDFMaker:
 
                 # Offer to download the PDF
                 print("\nWould you like to download the PDF file?")
-                files.download(pdf_filename)
+                
 
         except Exception as e:
             print(f"An unexpected error occurred: {str(e)}")
@@ -335,6 +357,18 @@ def test_algorithm():
 
         page_number += 1
         print()
+async def process_uploaded_file(file: UploadFile):
+        """Process uploaded file from web form"""
+        # Read file content
+        content = await file.read()
+        filename = file.filename
+        
+        # Save to temporary file
+        temp_path = f"/tmp/{filename}"
+        with open(temp_path, "wb") as f:
+            f.write(content)
+        
+        return temp_path, content, filename
 
 def main():
     """Main function for Google Colab"""
@@ -371,3 +405,9 @@ if __name__ == "__main__":
     print("\n" + "="*60)
 
     main()
+    return FileResponse(
+        pdf_path,
+        media_type="application/pdf",
+        filename="flashcards.pdf"
+    )
+
