@@ -1,744 +1,413 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PDF Flashcard Generator</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+# First, install required packages
 
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px;
-        }
+import pandas as pd
+from reportlab.lib.pagesizes import A6
+from reportlab.lib.units import mm
+from reportlab.pdfgen import canvas
+from reportlab.lib.utils import simpleSplit
+import os
+import io
+from fastapi import UploadFile
+from fastapi import FastAPI, UploadFile, File, Form, Request
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.templating import Jinja2Templates
+from fastapi.staticfiles import StaticFiles
 
-        .container {
-            max-width: 800px;
-            margin: 0 auto;
-            background: white;
-            border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-            overflow: hidden;
-        }
+app = FastAPI()
+templates = Jinja2Templates(directory="templates")
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
-        .header {
-            background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
-            color: white;
-            padding: 40px 30px;
-            text-align: center;
-        }
+@app.get("/", response_class=HTMLResponse)
+async def home(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
 
-        .header h1 {
-            font-size: 2.5rem;
-            margin-bottom: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 15px;
-        }
+@app.post("/generate")
+async def generate_pdf(
+    file: UploadFile = File(...),
+    fontsize: float = Form(10),
+    request: Request
+):
+    
 
-        .header p {
-            font-size: 1.1rem;
-            opacity: 0.9;
-            max-width: 600px;
-            margin: 0 auto;
-        }
 
-        .content {
-            padding: 40px;
-        }
+class ColabPDFMaker:
+    def __init__(self):
+        self.fontsize = 10  # Default font size
 
-        .upload-area {
-            border: 3px dashed #cbd5e1;
-            border-radius: 15px;
-            padding: 40px;
-            text-align: center;
-            margin-bottom: 30px;
-            transition: all 0.3s ease;
-            background: #f8fafc;
-        }
+    def upload_file(self):
+        """Upload CSV or Excel file in Google Colab"""
+        print("Please upload your CSV or Excel file:")
+        uploaded = upload_file
 
-        .upload-area:hover {
-            border-color: #4f46e5;
-            background: #f1f5f9;
-        }
+        if not uploaded:
+            print("No file uploaded. Exiting.")
+            return None
 
-        .upload-area.drag-over {
-            border-color: #4f46e5;
-            background: #e0e7ff;
-        }
+        # Get the uploaded filename
+        filename = list(uploaded.keys())[0]
 
-        .upload-icon {
-            font-size: 48px;
-            margin-bottom: 20px;
-            color: #4f46e5;
-        }
+        # Save the uploaded file
+        with open(filename, 'wb') as f:
+            f.write(uploaded[filename])
 
-        .file-input {
-            display: none;
-        }
+        print(f"File '{filename}' uploaded successfully!")
+        return filename
 
-        .browse-btn {
-            background: #4f46e5;
-            color: white;
-            border: none;
-            padding: 12px 30px;
-            border-radius: 8px;
-            font-size: 1rem;
-            cursor: pointer;
-            transition: background 0.3s;
-            margin-top: 15px;
-        }
+    def get_fontsize(self):
+        """Get font size from user"""
+        try:
+            fontsize = float(input("Enter font size (default is 10): ") or "10")
+            return fontsize
+        except ValueError:
+            print("Invalid font size. Using default size 10.")
+            return 10
 
-        .browse-btn:hover {
-            background: #4338ca;
-        }
+    def get_pdf_filename(self):
+        """Get PDF filename from user"""
+        filename = input("Enter the name for the PDF file (without extension): ")
+        if filename:
+            if not filename.endswith('.pdf'):
+                filename += '.pdf'
+        return filename
 
-        .selected-file {
-            margin-top: 20px;
-            padding: 15px;
-            background: #e0e7ff;
-            border-radius: 8px;
-            display: none;
-        }
+    def read_file_data(self, file_path):
+        """Read Column A and Column B from CSV or Excel file"""
+        try:
+            if file_path.lower().endswith('.csv'):
+                # Read CSV file
+                df = pd.read_csv(file_path, header=None)
+            elif file_path.lower().endswith(('.xlsx', '.xls')):
+                # Read Excel file
+                df = pd.read_excel(file_path, header=None)
+            else:
+                print("Error: Unsupported file format. Please use CSV or Excel files.")
+                return None, None
 
-        .selected-file.show {
-            display: block;
-        }
+            # Extract Column A (index 0) and Column B (index 1)
+            column_a = []
+            column_b = []
 
-        .file-name {
-            font-weight: 600;
-            color: #4f46e5;
-        }
+            # Skip first row if it's a header
+            start_row = 1 if df.shape[0] > 0 and isinstance(df.iloc[0, 0], str) and df.iloc[0, 0].lower() in ['column a', 'a', 'front'] else 0
 
-        .settings {
-            background: #f8fafc;
-            padding: 25px;
-            border-radius: 12px;
-            margin-bottom: 30px;
-        }
+            for i in range(start_row, len(df)):
+                # Column A
+                if 0 < len(df.columns):
+                    val_a = df.iloc[i, 0]
+                    if pd.notna(val_a):
+                        column_a.append(str(val_a).strip())
+                    else:
+                        column_a.append("")
 
-        .form-group {
-            margin-bottom: 20px;
-        }
+                # Column B
+                if 1 < len(df.columns):
+                    val_b = df.iloc[i, 1]
+                    if pd.notna(val_b):
+                        column_b.append(str(val_b).strip())
+                    else:
+                        column_b.append("")
 
-        label {
-            display: block;
-            margin-bottom: 8px;
-            font-weight: 600;
-            color: #475569;
-        }
+            return column_a, column_b
 
-        input[type="number"] {
-            width: 100%;
-            padding: 12px;
-            border: 2px solid #cbd5e1;
-            border-radius: 8px;
-            font-size: 1rem;
-            transition: border-color 0.3s;
-        }
+        except Exception as e:
+            print(f"Error reading file: {str(e)}")
+            return None, None
 
-        input[type="number"]:focus {
-            outline: none;
-            border-color: #4f46e5;
-        }
+    def create_pdf(self, column_a, column_b, output_filename, fontsize):
+        """Create PDF with alternating layout pattern"""
+        try:
+            # Page setup
+            page_width, page_height = A6
+            margin = 8 * mm
 
-        .process-btn {
-            width: 100%;
-            background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
-            color: white;
-            border: none;
-            padding: 18px;
-            border-radius: 12px;
-            font-size: 1.1rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: transform 0.3s, box-shadow 0.3s;
-            margin-top: 10px;
-        }
+            # Calculate grid dimensions
+            cols = 2
+            rows = 5
+            tcpp = cols * rows  # Total cells per page = 10
+            cell_width = (page_width - 2 * margin) / cols
+            cell_height = (page_height - 2 * margin) / rows
 
-        .process-btn:hover:not(:disabled) {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 25px rgba(79, 70, 229, 0.4);
-        }
+            # Create PDF
+            c = canvas.Canvas(output_filename, pagesize=A6)
 
-        .process-btn:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-        }
+            # Calculate total pages needed
+            max_words = max(len(column_a), len(column_b))
+            total_pages = (max_words + tcpp - 1) // tcpp * 2  # Multiply by 2 for both A and B pages
 
-        .progress-container {
-            margin-top: 30px;
-            display: none;
-        }
+            cmr = 0  # Current row marker (starts at index 0, which is row 1 in Excel)
+            page_number = 1
 
-        .progress-container.show {
-            display: block;
-        }
+            while cmr < max_words:
+                if page_number > 1:
+                    c.showPage()
 
-        .progress-header {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 10px;
-        }
+                print(f"Creating Page {page_number}, cmr={cmr+1}")
 
-        .progress-bar {
-            height: 12px;
-            background: #e2e8f0;
-            border-radius: 6px;
-            overflow: hidden;
-            margin-bottom: 10px;
-        }
+                if page_number % 2 == 1:  # ODD page - Column A
+                    # Layout: [cmr, cmr+1], [cmr+2, cmr+3], [cmr+4, cmr+5], [cmr+6, cmr+7], [cmr+8, cmr+9]
+                    for row in range(rows):
+                        for col in range(cols):
+                            data_index = cmr + row * cols + col
 
-        .progress-fill {
-            height: 100%;
-            background: linear-gradient(90deg, #4f46e5, #7c3aed);
-            width: 0%;
-            transition: width 0.5s ease;
-            border-radius: 6px;
-        }
+                            if data_index < len(column_a):
+                                word = column_a[data_index]
+                            else:
+                                word = ""
 
-        .progress-text {
-            font-size: 0.9rem;
-            color: #64748b;
-            text-align: center;
-        }
+                            coord = f"{data_index + 1}A"  # +1 because Excel rows start at 1
+                            self.draw_word_in_cell(c, word, row, col, cell_width, cell_height,
+                                                 page_width, page_height, margin, coord, fontsize)
 
-        .result-container {
-            margin-top: 30px;
-            padding: 25px;
-            background: #f0fdf4;
-            border: 2px solid #86efac;
-            border-radius: 12px;
-            display: none;
-            text-align: center;
-        }
+                else:  # EVEN page - Column B
+                    # Layout: [cmr+1, cmr], [cmr+3, cmr+2], [cmr+5, cmr+4], [cmr+7, cmr+6], [cmr+9, cmr+8]
+                    for row in range(rows):
+                        # Left cell: cmr + row*2 + 1 (odd index)
+                        # Right cell: cmr + row*2 (even index)
+                        left_index = cmr + row * 2 + 1
+                        right_index = cmr + row * 2
 
-        .result-container.show {
-            display: block;
-            animation: slideIn 0.5s ease;
-        }
+                        # Draw left cell (reversed - higher number)
+                        if left_index < len(column_b):
+                            word_left = column_b[left_index]
+                        else:
+                            word_left = ""
+                        coord_left = f"{left_index + 1}B"
+                        self.draw_word_in_cell(c, word_left, row, 0, cell_width, cell_height,
+                                             page_width, page_height, margin, coord_left, fontsize)
 
-        @keyframes slideIn {
-            from {
-                opacity: 0;
-                transform: translateY(20px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
+                        # Draw right cell (reversed - lower number)
+                        if right_index < len(column_b):
+                            word_right = column_b[right_index]
+                        else:
+                            word_right = ""
+                        coord_right = f"{right_index + 1}B"
+                        self.draw_word_in_cell(c, word_right, row, 1, cell_width, cell_height,
+                                             page_width, page_height, margin, coord_right, fontsize)
 
-        .success-icon {
-            font-size: 48px;
-            color: #22c55e;
-            margin-bottom: 15px;
-        }
+                # Draw grid lines
+                self.draw_grid_lines(c, page_width, page_height, margin, cols, rows, cell_width, cell_height)
 
-        .download-btn {
-            display: inline-block;
-            background: #22c55e;
-            color: white;
-            text-decoration: none;
-            padding: 15px 40px;
-            border-radius: 8px;
-            font-weight: 600;
-            margin-top: 15px;
-            transition: background 0.3s;
-        }
+                # Move to next set after completing both A and B pages
+                if page_number % 2 == 0:
+                    cmr += tcpp
 
-        .download-btn:hover {
-            background: #16a34a;
-        }
+                page_number += 1
 
-        .instructions {
-            background: #fef3c7;
-            border-left: 4px solid #f59e0b;
-            padding: 20px;
-            margin-top: 30px;
-            border-radius: 8px;
-        }
+            c.save()
+            return True
 
-        .instructions h3 {
-            color: #d97706;
-            margin-bottom: 10px;
-        }
+        except Exception as e:
+            print(f"Error creating PDF: {str(e)}")
+            return False
 
-        .instructions ul {
-            list-style-position: inside;
-            color: #92400e;
-        }
+    def draw_word_in_cell(self, c, word, row, col, cell_width, cell_height,
+                         page_width, page_height, margin, coord, fontsize):
+        """Draw a word in a specific cell"""
+        # Calculate position
+        x = margin + col * cell_width + cell_width / 2
+        y = page_height - margin - row * cell_height - cell_height / 2
 
-        .instructions li {
-            margin-bottom: 8px;
-        }
+        # Configure text
+        c.setFont("Helvetica", fontsize)
+        c.setFillColorRGB(0, 0, 0)  # Black color
 
-        .error-message {
-            background: #fee2e2;
-            border: 2px solid #ef4444;
-            color: #b91c1c;
-            padding: 15px;
-            border-radius: 8px;
-            margin-top: 20px;
-            display: none;
-        }
+        # Split long text to fit in cell
+        max_width = cell_width - 4 * mm
+        wrapped_text = simpleSplit(str(word), "Helvetica", fontsize, max_width)
 
-        .error-message.show {
-            display: block;
-        }
+        # Draw text (centered)
+        text_height = len(wrapped_text) * (fontsize / 2.5) * mm
+        current_y = y + text_height / 2 - (fontsize / 5) * mm
 
-        .info-box {
-            background: #dbeafe;
-            border: 2px solid #3b82f6;
-            padding: 20px;
-            border-radius: 10px;
-            margin-top: 30px;
-        }
+        for line in wrapped_text:
+            text_width = c.stringWidth(line, "Helvetica", fontsize)
+            c.drawString(x - text_width / 2, current_y, line)
+            current_y -= (fontsize / 2.5) * mm
 
-        .info-box h3 {
-            color: #1d4ed8;
-            margin-bottom: 10px;
-        }
+    def draw_grid_lines(self, c, page_width, page_height, margin, cols, rows, cell_width, cell_height):
+        """Draw grid lines for better visualization"""
+        c.setStrokeColorRGB(0, 0, 0)  # black
+        c.setLineWidth(0.5)
 
-        .info-box p {
-            color: #1e40af;
-        }
+        # Draw border
+        c.rect(margin, margin, page_width - 2*margin, page_height - 2*margin)
 
-        .loading-spinner {
-            display: none;
-            width: 40px;
-            height: 40px;
-            border: 4px solid #e2e8f0;
-            border-top: 4px solid #4f46e5;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin: 20px auto;
-        }
+        # Vertical lines
+        for col in range(1, cols):
+            x = margin + col * cell_width
+            c.line(x, margin, x, page_height - margin)
 
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
+        # Horizontal lines
+        for row in range(1, rows):
+            y = page_height - margin - row * cell_height
+            c.line(margin, y, page_width - margin, y)
 
-        .mode-selector {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 20px;
-        }
+    def show_file_info(self, column_a, column_b, file_path):
+        """Show information about the loaded file"""
+        file_name = os.path.basename(file_path)
+        file_type = "Excel" if file_path.lower().endswith(('.xlsx', '.xls')) else "CSV"
+        max_words = max(len(column_a), len(column_b))
+        total_pages = ((max_words + 9) // 10) * 2  # Both A and B pages
 
-        .mode-btn {
-            flex: 1;
-            padding: 12px;
-            border: 2px solid #cbd5e1;
-            background: white;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: 600;
-            transition: all 0.3s;
-        }
+        print("\n" + "="*50)
+        print("FILE INFORMATION")
+        print("="*50)
+        print(f"File: {file_name}")
+        print(f"Type: {file_type}")
+        print(f"Column A words: {len(column_a)}")
+        print(f"Column B words: {len(column_b)}")
+        print(f"Pages needed: {total_pages}")
+        print(f"Layout: Alternating A/B pattern")
+        print("="*50 + "\n")
 
-        .mode-btn.active {
-            background: #4f46e5;
-            color: white;
-            border-color: #4f46e5;
-        }
+    def run(self):
+        """Main function to run the application"""
+        try:
+            # Step 1: Get font size from user
+            self.fontsize = self.get_fontsize()
 
-        @media (max-width: 768px) {
-            .container {
-                margin: 10px;
-            }
-            
-            .header h1 {
-                font-size: 2rem;
-            }
-            
-            .content {
-                padding: 20px;
-            }
-            
-            .upload-area {
-                padding: 30px 20px;
-            }
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>📄 PDF Flashcard Generator</h1>
-            <p>Convert your CSV/Excel files into printable flashcards with alternating A/B pattern</p>
-        </div>
+            # Step 2: Upload file in Google Colab
+            file_path = self.upload_file()
+            if not file_path:
+                return
 
-        <div class="content">
-            <!-- Mode Selector -->
-            <div class="mode-selector">
-                <button class="mode-btn active" onclick="setMode('sync')" id="syncModeBtn">
-                    ⚡ Quick Process
-                </button>
-                <button class="mode-btn" onclick="setMode('async')" id="asyncModeBtn">
-                    🔄 Background Process
-                </button>
-            </div>
+            # Step 3: Get PDF filename
+            pdf_filename = self.get_pdf_filename()
+            if not pdf_filename:
+                print("No PDF filename entered. Exiting.")
+                return
 
-            <!-- File Upload Area -->
-            <div class="upload-area" id="uploadArea">
-                <div class="upload-icon">📤</div>
-                <h3>Drag & Drop Your File Here</h3>
-                <p>or</p>
-                <button class="browse-btn" onclick="document.getElementById('fileInput').click()">
-                    Browse Files
-                </button>
-                <input type="file" id="fileInput" class="file-input" accept=".csv,.xlsx,.xls">
+            # Step 4: Read file data (Column A and Column B)
+            column_a, column_b = self.read_file_data(file_path)
+            if column_a is None or column_b is None:
+                return
+
+            if len(column_a) == 0 and len(column_b) == 0:
+                print("Warning: No data found in columns A and B.")
+                return
+
+            # Show file information
+            self.show_file_info(column_a, column_b, file_path)
+
+            # Step 5: Create PDF with correct algorithm
+            print("Creating PDF...")
+            success = self.create_pdf(column_a, column_b, pdf_filename, self.fontsize)
+
+            if success:
+                max_words = max(len(column_a), len(column_b))
+                total_pages = ((max_words + 9) // 10) * 2
+
+                print("\n" + "="*50)
+                print("SUCCESS!")
+                print("="*50)
+                print(f"PDF created successfully!")
+                print(f"File: {os.path.abspath(pdf_filename)}")
+                print(f"Font size used: {self.fontsize}")
+                print(f"Column A words: {len(column_a)}")
+                print(f"Column B words: {len(column_b)}")
+                print(f"Total pages: {total_pages}")
+                print("="*50)
+
+                # Offer to download the PDF
+                print("\nWould you like to download the PDF file?")
                 
-                <div class="selected-file" id="selectedFile">
-                    Selected: <span class="file-name" id="fileName"></span>
-                    <span style="color: #22c55e; margin-left: 10px;">✓</span>
-                </div>
-            </div>
 
-            <!-- Settings -->
-            <div class="settings">
-                <div class="form-group">
-                    <label for="fontsize">📝 Font Size</label>
-                    <input type="number" id="fontsize" value="10" min="5" max="30" step="0.5">
-                    <small style="color: #64748b;">Recommended: 10-14 for A6 paper</small>
-                </div>
-            </div>
+        except Exception as e:
+            print(f"An unexpected error occurred: {str(e)}")
 
-            <!-- Process Button -->
-            <button class="process-btn" id="processBtn" onclick="processFile()">
-                🚀 Generate PDF Flashcards
-            </button>
+def test_algorithm():
+    """Test the algorithm with sample data"""
+    print("=== Testing Algorithm ===\n")
 
-            <!-- Loading Spinner -->
-            <div class="loading-spinner" id="loadingSpinner"></div>
+    # Sample data
+    column_a = [f"Word{i}" for i in range(1, 21)]
+    column_b = [f"Back{i}" for i in range(1, 21)]
 
-            <!-- Progress Container -->
-            <div class="progress-container" id="progressContainer">
-                <div class="progress-header">
-                    <span>Processing...</span>
-                    <span id="progressPercent">0%</span>
-                </div>
-                <div class="progress-bar">
-                    <div class="progress-fill" id="progressFill"></div>
-                </div>
-                <div class="progress-text" id="progressText">
-                    Starting processing...
-                </div>
-            </div>
+    cols = 2
+    rows = 5
+    tcpp = 10
 
-            <!-- Result Container -->
-            <div class="result-container" id="resultContainer">
-                <div class="success-icon">✅</div>
-                <h3>PDF Generated Successfully!</h3>
-                <p>Your flashcards are ready to download.</p>
-                <a class="download-btn" id="downloadLink" download>
-                    📥 Download PDF
-                </a>
-                <p style="margin-top: 15px; color: #64748b; font-size: 0.9rem;">
-                    File will be automatically downloaded...
-                </p>
-            </div>
+    cmr = 0
+    page_number = 1
+    max_words = max(len(column_a), len(column_b))
 
-            <!-- Error Message -->
-            <div class="error-message" id="errorMessage">
-                <strong>Error:</strong> <span id="errorText"></span>
-            </div>
+    while cmr < max_words:
+        print(f"Page {page_number} (cmr={cmr+1}):")
 
-            <!-- Info Box -->
-            <div class="info-box">
-                <h3>📋 Expected File Format</h3>
-                <p>Your CSV/Excel file should have:</p>
-                <ul style="list-style: none; padding-left: 0;">
-                    <li>• Column A: Front of flashcards (odd pages)</li>
-                    <li>• Column B: Back of flashcards (even pages)</li>
-                    <li>• Optional header row with "Column A", "Front", etc.</li>
-                </ul>
-            </div>
+        if page_number % 2 == 1:  # ODD - Column A
+            print("  Column A - Sequential:")
+            for row in range(rows):
+                left_idx = cmr + row * 2
+                right_idx = cmr + row * 2 + 1
+                left_word = column_a[left_idx] if left_idx < len(column_a) else "EMPTY"
+                right_word = column_a[right_idx] if right_idx < len(column_a) else "EMPTY"
+                print(f"  [{left_idx+1}A: {left_word}, {right_idx+1}A: {right_word}]")
 
-            <!-- Instructions -->
-            <div class="instructions">
-                <h3>💡 How It Works</h3>
-                <ul>
-                    <li>Upload CSV or Excel file with two columns</li>
-                    <li>First column = Front side (Column A)</li>
-                    <li>Second column = Back side (Column B)</li>
-                    <li>PDF will be generated with A6 pages (2 columns × 5 rows)</li>
-                    <li>Odd pages show Column A, Even pages show Column B</li>
-                    <li>Perfect for printing and cutting into flashcards</li>
-                </ul>
-            </div>
-        </div>
-    </div>
+        else:  # EVEN - Column B
+            print("  Column B - Reversed pairs:")
+            for row in range(rows):
+                left_idx = cmr + row * 2 + 1  # Higher number on left
+                right_idx = cmr + row * 2      # Lower number on right
+                left_word = column_b[left_idx] if left_idx < len(column_b) else "EMPTY"
+                right_word = column_b[right_idx] if right_idx < len(column_b) else "EMPTY"
+                print(f"  [{left_idx+1}B: {left_word}, {right_idx+1}B: {right_word}]")
 
-    <script>
-        // Global variables
-        let selectedFile = null;
-        let currentMode = 'sync';
-        let taskId = null;
-        let pollInterval = null;
+        if page_number % 2 == 0:
+            cmr += tcpp
 
-        // DOM Elements
-        const uploadArea = document.getElementById('uploadArea');
-        const fileInput = document.getElementById('fileInput');
-        const selectedFileDiv = document.getElementById('selectedFile');
-        const fileNameSpan = document.getElementById('fileName');
-        const processBtn = document.getElementById('processBtn');
-        const progressContainer = document.getElementById('progressContainer');
-        const progressFill = document.getElementById('progressFill');
-        const progressPercent = document.getElementById('progressPercent');
-        const progressText = document.getElementById('progressText');
-        const resultContainer = document.getElementById('resultContainer');
-        const downloadLink = document.getElementById('downloadLink');
-        const errorMessage = document.getElementById('errorMessage');
-        const errorText = document.getElementById('errorText');
-        const loadingSpinner = document.getElementById('loadingSpinner');
-        const syncModeBtn = document.getElementById('syncModeBtn');
-        const asyncModeBtn = document.getElementById('asyncModeBtn');
+        page_number += 1
+        print()
+async def process_uploaded_file(file: UploadFile):
+        """Process uploaded file from web form"""
+        # Read file content
+        content = await file.read()
+        filename = file.filename
+        
+        # Save to temporary file
+        temp_path = f"/tmp/{filename}"
+        with open(temp_path, "wb") as f:
+            f.write(content)
+        
+        return temp_path, content, filename
 
-        // Drag and drop handlers
-        uploadArea.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            uploadArea.classList.add('drag-over');
-        });
+def main():
+    """Main function for Google Colab"""
+    print("="*60)
+    print("PDF Booklet maker in google")
+    print("="*60)
+    print("\nThis tool creates PDF flashcards from CSV/Excel files.")
+    print("Expected file format:")
+    print("- Column A: Front of flashcards (odd pages)")
+    print("- Column B: Back of flashcards (even pages)")
+    print("="*60 + "\n")
+    print("\n" + "="*60)
+    print("STARTING PDF CREATION")
+    print("="*60)
 
-        uploadArea.addEventListener('dragleave', () => {
-            uploadArea.classList.remove('drag-over');
-        });
+    # Run the application
+    app = ColabPDFMaker()
+    app.run()
 
-        uploadArea.addEventListener('drop', (e) => {
-            e.preventDefault();
-            uploadArea.classList.remove('drag-over');
-            
-            if (e.dataTransfer.files.length > 0) {
-                handleFileSelect(e.dataTransfer.files[0]);
-            }
-        });
+if __name__ == "__main__":
+    # First, check and install required packages
+    print("Checking and installing required packages...")
+    try:
+        import pandas
+        import reportlab
+    except ImportError:
+        print("Installing required packages...")
+        !pip install pandas reportlab openpyxl
 
-        // File input change handler
-        fileInput.addEventListener('change', (e) => {
-            if (e.target.files.length > 0) {
-                handleFileSelect(e.target.files[0]);
-            }
-        });
+    print("\nRequired packages installed/verified:")
+    print("- pandas")
+    print("- reportlab")
+    print("- openpyxl (for Excel support)")
+    print("\n" + "="*60)
 
-        // Handle file selection
-        function handleFileSelect(file) {
-            // Validate file type
-            const validTypes = ['.csv', '.xlsx', '.xls'];
-            const fileExt = '.' + file.name.split('.').pop().toLowerCase();
-            
-            if (!validTypes.includes(fileExt)) {
-                showError(`Invalid file type. Please upload: ${validTypes.join(', ')}`);
-                return;
-            }
-            
-            // Validate file size (max 10MB)
-            if (file.size > 10 * 1024 * 1024) {
-                showError('File too large. Maximum size is 10MB.');
-                return;
-            }
-            
-            selectedFile = file;
-            fileNameSpan.textContent = file.name;
-            selectedFileDiv.classList.add('show');
-            errorMessage.classList.remove('show');
-            
-            console.log('File selected:', file.name, 'Size:', file.size);
-        }
+    main()
+    return FileResponse(
+        pdf_path,
+        media_type="application/pdf",
+        filename="flashcards.pdf"
+    )
 
-        // Set processing mode
-        function setMode(mode) {
-            currentMode = mode;
-            
-            if (mode === 'sync') {
-                syncModeBtn.classList.add('active');
-                asyncModeBtn.classList.remove('active');
-            } else {
-                asyncModeBtn.classList.remove('active');
-                asyncModeBtn.classList.add('active');
-                syncModeBtn.classList.remove('active');
-            }
-        }
-
-        // Process file
-        async function processFile() {
-            if (!selectedFile) {
-                showError('Please select a file first.');
-                return;
-            }
-            
-            // Reset UI
-            errorMessage.classList.remove('show');
-            resultContainer.classList.remove('show');
-            
-            const fontsize = document.getElementById('fontsize').value || 10;
-            
-            if (currentMode === 'sync') {
-                await processSync(fontsize);
-            } else {
-                await processAsync(fontsize);
-            }
-        }
-
-        // Synchronous processing
-        async function processSync(fontsize) {
-            try {
-                showLoading(true);
-                
-                const formData = new FormData();
-                formData.append('file', selectedFile);
-                formData.append('fontsize', fontsize);
-                
-                const response = await fetch('/api/process', {
-                    method: 'POST',
-                    body: formData
-                });
-                
-                if (!response.ok) {
-                    const error = await response.text();
-                    throw new Error(error);
-                }
-                
-                // Get the PDF blob
-                const blob = await response.blob();
-                
-                // Create download link
-                const url = window.URL.createObjectURL(blob);
-                downloadLink.href = url;
-                downloadLink.download = `flashcards_${selectedFile.name.split('.')[0]}.pdf`;
-                
-                // Show result
-                showLoading(false);
-                resultContainer.classList.add('show');
-                
-                // Auto-click download link
-                setTimeout(() => {
-                    downloadLink.click();
-                }, 500);
-                
-            } catch (error) {
-                showLoading(false);
-                showError(error.message);
-            }
-        }
-
-        // Asynchronous processing
-        async function processAsync(fontsize) {
-            try {
-                showLoading(true);
-                progressContainer.classList.add('show');
-                updateProgress(0, 'Uploading file...');
-                
-                const formData = new FormData();
-                formData.append('file', selectedFile);
-                formData.append('fontsize', fontsize);
-                
-                const response = await fetch('/api/process-async', {
-                    method: 'POST',
-                    body: formData
-                });
-                
-                const data = await response.json();
-                
-                if (!response.ok) {
-                    throw new Error(data.detail || 'Upload failed');
-                }
-                
-                taskId = data.task_id;
-                showLoading(false);
-                
-                // Start polling for progress
-                startPollingProgress();
-                
-            } catch (error) {
-                showLoading(false);
-                showError(error.message);
-            }
-        }
-
-        // Poll for progress updates
-        function startPollingProgress() {
-            if (pollInterval) {
-                clearInterval(pollInterval);
-            }
-            
-            pollInterval = setInterval(async () => {
-                try {
-                    const response = await fetch(`/api/progress/${taskId}`);
-                    const data = await response.json();
-                    
-                    if (data.percent !== undefined) {
-                        updateProgress(data.percent, data.message);
-                    }
-                    
-                    if (data.status === 'complete') {
-                        clearInterval(pollInterval);
-                        
-                        // Show success
-                        setTimeout(() => {
-                            progressContainer.classList.remove('show');
-                            resultContainer.classList.add('show');
-                            downloadLink.href = `/api/download/${taskId}`;
-                            downloadLink.download = `flashcards_${taskId}.pdf`;
-                            
-                            // Auto-download
-                            setTimeout(() => {
-                                downloadLink.click();
-                            }, 1000);
-                        }, 1000);
-                    }
-                    
-                    if (data.status === 'error') {
-                        clearInterval(pollInterval);
-                        showError(data.message);
-                    }
-                    
-                } catch (error) {
-                    console.error('Polling error:', error);
-                }
-            }, 1000);
-        }
-
-        // Update progress display
-        function updateProgress(percent, message) {
-            progressFill.style.width = `${percent}%`;
-            progressPercent.textContent = `${Math.round(percent)}%`;
-            progressText.textContent = message;
-        }
-
-        // Show loading spinner
-        function showLoading(show) {
-            loadingSpinner.style.display = show ? 'block' : 'none';
-            processBtn.disabled = show;
-            processBtn.textContent = show ? 'Processing...' : '🚀 Generate PDF Flashcards';
-        }
-
-        // Show error message
-        function showError(message) {
-            errorText.textContent = message;
-            errorMessage.classList.add('show');
-            
-            // Scroll to error
-            errorMessage.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
-
-        // Initialize
-        document.addEventListener('DOMContentLoaded', () => {
-            console.log('PDF Flashcard Generator loaded');
-            
-            // Set default mode
-            setMode('sync');
-        });
-    </script>
-</body>
-</html>
