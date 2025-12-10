@@ -8,3 +8,8 @@ Denn unterladet automatisch.
 
 https://colab.research.google.com/drive/1EDJBfqk7x5rsy7PWtAtjmZ_ho4-V6Ggr?usp=sharing
 
+
+TODO:
+Resimler ile oluyor mu?
+Araryüz geliştirme Html+python oluyor mu local olarak? html dosyasını açşam mesela?
+
