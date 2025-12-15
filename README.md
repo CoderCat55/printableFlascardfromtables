@@ -13,3 +13,6 @@ TODO:
 Resimler ile oluyor mu?
 Araryüz geliştirme Html+python oluyor mu local olarak? html dosyasını açşam mesela?
 
+
+orjinal kod colabda çalışacak şekilde ayarlanmış onu başka repositorilerimdeki gibi önce bilgisayrda çalışacak şekilde ayalaryıım (başka bir branchde)
+
